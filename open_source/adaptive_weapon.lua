@@ -6,6 +6,8 @@
     
 local __DEBUG = false
 
+local clipboard = require("gamesense/clipboard") or error("clipboard lib cant be found")
+
 --[[
     experimental adaptive weapon fast builder.lua   
 
@@ -32,7 +34,7 @@ local __DEBUG = false
         SOFTWARE.
 ]]
 
-local weapon, switch, location = (function()
+local weapon, switch, location, exporter, importer = (function()
     local ex_weapon = {}
 
     local refs = {
@@ -152,7 +154,7 @@ local weapon, switch, location = (function()
             { refs.prefer_bodyaim, nil, OTHER},
         },
         ['new_slider'] = {
-            { refs.fov, {1, 180, 180, true, "°", 1}, AIMBOT}, 
+            { refs.fov, {1, 180, 180, true, "��", 1}, AIMBOT}, 
             { refs.multipoint_scale, {24, 100, 60, true, "%", 1, { [24] = "Auto" }}, AIMBOT, function()
                 return 'multipoint[1]', function(aim) return #ui.get(aim) > 0 end
             end},
@@ -261,6 +263,7 @@ local weapon, switch, location = (function()
         local parameter, func, loc, ext, main_code
         local lists, configs, existed = {}, {}, {}
         local update_functions, extend_ui_callbacks = {}, {}
+        local exporter = {}
 
         for i, o in pairs(__init) do 
             for k, v in pairs(o) do 
@@ -318,6 +321,8 @@ local weapon, switch, location = (function()
                 if not lists[list_ac][v] then lists[list_ac][v] = {} end 
                 local created = ui[func](loc_1, loc_2, names .. '\n' .. v, ...)
 
+
+                table.insert(exporter, created)
                 table.insert(lists[list_ac][v], created)
                 table.insert(single, created)
             end
@@ -484,6 +489,8 @@ local weapon, switch, location = (function()
                 for k, v in pairs(weapon_name) do
                     local uix = ui.new_multiselect(OTHER[1], OTHER[2], origin_name ..' Tweaks' .. '\n' .. v, allextra_modes)
 
+                    table.insert(exporter, uix)
+
                     if not pcall(json.parse, ui.get(cache)) then
                         ui.set(cache, [[{"Deagle":{},"Revolver":{},"Taser":{},"AWP":{},"Rifle":{},"Global":{},"Pistol":{},"SMG":{},"Scout":{},"Auto":{},"Shotgun":{}}]])
                     end 
@@ -566,6 +573,7 @@ local weapon, switch, location = (function()
             update = {},
             update_functions = update_functions,
             main_code = main_code,
+            exporter = exporter
         }
     end
 
@@ -808,7 +816,55 @@ local weapon, switch, location = (function()
         end
     end)
 
-    return search, weapon_switch, AIMBOT
+    local function export_json()
+        local tbl = {}
+        for k, v in pairs(refs) do 
+            if type(v) == 'table' then 
+                for i, o in pairs(v) do 
+                    local ref = search(k .. '['..i..']')
+                    if ref then
+                        for k, v in pairs(ref.exporter) do 
+                            tbl[ui.name(v)] = ui.get(v)
+                        end 
+                    end
+                end
+            else 
+                local ref = search(k)
+                if ref then
+                    for k, v in pairs(ref.exporter) do 
+                        tbl[ui.name(v)] = ui.get(v)
+                    end 
+                end
+            end
+        end
+
+        clipboard.set(json.stringify(tbl))
+    end
+
+    local function import_json()
+        local tbl = json.parse(clipboard.get())
+        for k, v in pairs(refs) do 
+            if type(v) == 'table' then 
+                for i, o in pairs(v) do 
+                    local ref = search(k .. '['..i..']')
+                    if ref then
+                        for k, v in pairs(ref.exporter) do 
+                            ui.set(v, tbl[ui.name(v)])
+                        end 
+                    end
+                end
+            else 
+                local ref = search(k)
+                if ref then
+                    for k, v in pairs(ref.exporter) do 
+                        ui.set(v, tbl[ui.name(v)])
+                    end 
+                end
+            end
+        end
+    end
+
+    return search, weapon_switch, AIMBOT, export_json, import_json
 end)()
 
 
@@ -842,3 +898,13 @@ end)()
         return ui.get(dmg_on_key)
     end)
 -- 
+
+client.delay_call(0.5, function()
+    local export = ui.new_button('LUA', 'A', 'export to clipboard', exporter)
+    local import = ui.new_button('LUA', 'A', 'import from clipboard', importer)
+
+    client.set_event_callback('paint_ui', function()
+        ui.set_visible(export, ui.get(switch))
+        ui.set_visible(import, ui.get(switch))
+    end)
+end)
