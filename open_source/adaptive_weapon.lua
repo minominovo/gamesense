@@ -10,21 +10,16 @@ local clipboard = require("gamesense/clipboard") or error("clipboard lib cant be
 
 --[[
     experimental adaptive weapon fast builder.lua   
-
     MIT License:
-
         Copyright (c) 2023 nonterminal
-
         Permission is hereby granted, free of charge, to any person obtaining a copy
         of this software and associated documentation files (the "Software"), to deal
         in the Software without restriction, including without limitation the rights
         to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
         copies of the Software, and to permit persons to whom the Software is
         furnished to do so, subject to the following conditions:
-
         The above copyright notice and this permission notice shall be included in all
         copies or substantial portions of the Software.
-
         THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
         IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
         FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -33,7 +28,6 @@ local clipboard = require("gamesense/clipboard") or error("clipboard lib cant be
         OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
         SOFTWARE.
 ]]
-
 local weapon, switch, location, exporter, importer = (function()
     local ex_weapon = {}
 
@@ -264,6 +258,7 @@ local weapon, switch, location, exporter, importer = (function()
         local lists, configs, existed = {}, {}, {}
         local update_functions, extend_ui_callbacks = {}, {}
         local exporter = {}
+        local cur_logic = 'default'
 
         for i, o in pairs(__init) do 
             for k, v in pairs(o) do 
@@ -348,9 +343,14 @@ local weapon, switch, location, exporter, importer = (function()
             table.insert(existed, logic_name)
         end
 
-        local function new_logic(logic_name, priority, paper, alias_clr)
+        local function new_logic(logic_name, priority, paper, alias_clr, adaptive)
             if pather(existed, logic_name) or logic_name == 'default' then 
                 print('[error] logic name existed'); return
+            end
+
+            if adaptive then 
+                add_logic(logic_name, priority, paper, nil)
+                return 
             end
 
             if type(paper) == 'function' then 
@@ -439,11 +439,29 @@ local weapon, switch, location, exporter, importer = (function()
         end
 
         local function callback()
+            -- print(ex_weapon.relevant[name].ui_state)
             local resort = json.parse(ex_weapon.relevant[name].ui_state)
-            if resort ~= json.parse(last_state) then 
-                local weapon, logic = resort[1], resort[2]
-                local weapon_ref
+            if resort ~= json.parse(last_state) or resort[3] then 
+                local weapon, logic, adaptive = resort[1], resort[2], resort[3]
 
+                if ex_weapon.relevant[name] then
+                    ex_weapon.relevant[name].cur_logic = logic
+                end
+
+                if adaptive then 
+                    if pcall(json.parse, adaptive) and type(json.parse(adaptive)) == 'table' then 
+                        adaptive = json.parse(adaptive)
+                    end 
+
+                    if type(json.parse(adaptive)) == 'number' then 
+                        adaptive = tonumber(adaptive)
+                    end
+
+                    ui.set(ref, adaptive)
+                    return
+                end 
+
+                local weapon_ref
                 if logic == 'default' then 
                     weapon_ref = main_code[name_to_num[weapon]]
                 else 
@@ -515,7 +533,9 @@ local weapon, switch, location, exporter, importer = (function()
                         ui.set(cache, json.stringify(to_str))
 
                         for i, o in pairs(configs) do 
-                            ui.set_visible(o.ref[k], contains(ui.get(uix), o.name))
+                            if o.ref then
+                                ui.set_visible(o.ref[k], contains(ui.get(uix), o.name))
+                            end
                         end
                     end
 
@@ -545,8 +565,10 @@ local weapon, switch, location, exporter, importer = (function()
             end
         
             for k, v in pairs(configs) do 
-                for i, o in pairs(v.ref) do 
-                    table.insert(uis, o)
+                if v.ref then
+                    for i, o in pairs(v.ref) do 
+                        table.insert(uis, o)
+                    end
                 end
             end 
         
@@ -558,6 +580,7 @@ local weapon, switch, location, exporter, importer = (function()
         end
 
         ex_weapon.relevant[name] = {
+            cur_logic = cur_logic,
             reference = ref,
             ui_cache = cache,
             ui_list = lists,
@@ -611,11 +634,13 @@ local weapon, switch, location, exporter, importer = (function()
         end
 
         for k, v in pairs(refer.configs) do 
-            for i, o in pairs(v.ref) do 
-                if weapon_name[i] == val then
-                    table.insert(ui_visible, o)
-                else 
-                    table.insert(ui_invisible, o)
+            if v.ref then
+                for i, o in pairs(v.ref) do 
+                    if weapon_name[i] == val then
+                        table.insert(ui_visible, o)
+                    else 
+                        table.insert(ui_invisible, o)
+                    end
                 end
             end
         end 
@@ -767,9 +792,14 @@ local weapon, switch, location, exporter, importer = (function()
             for idx = 1, #modes do
                 local mode = modes[idx]
                 if #prefer.update > 0 then
-                    local mode_should_run = mode.func(e) and contains(ui.get(prefer.update[name_to_num[weapon]]), mode.name)
+                    local running, adaptive = mode.func(e)
+                    local mode_should_run = running and contains(ui.get(prefer.update[name_to_num[weapon]]), mode.name)
                     if mode_should_run then
-                        state = json.stringify({i_weapon_name, mode.name})
+                        if adaptive then
+                            state = json.stringify({i_weapon_name, mode.name, adaptive})
+                        else 
+                            state = json.stringify({i_weapon_name, mode.name})
+                        end 
                     end
                 end
             end
@@ -894,7 +924,7 @@ end)()
 
     hitchance.list_logic() 
 
-    damage.new_logic('on_key', 1, function()
+    damage.new_logic('On Key', 1, function()
         return ui.get(dmg_on_key)
     end)
 -- 
